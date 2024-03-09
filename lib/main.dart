@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
-
+import 'package:lottie/lottie.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
@@ -12,7 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await checkLocationPermission();
+  await requestLocationPermissions();
   await requestNotificationPermission();
   await _determinePosition();
   await initializeService();
@@ -38,18 +38,29 @@ Future<void> requestNotificationPermission() async {
   }
 }
 
-Future<void> checkLocationPermission() async {
-  PermissionStatus status = await Permission.location.status;
-  if (status.isGranted) {
-    print('Location permission granted');
-    // Proceed with location-related functionality
-  } else if (status.isDenied) {
-    print('Location permission denied');
-    // Optionally, request the permission
-    PermissionStatus newStatus = await Permission.location.request();
-    if (newStatus.isGranted) {
-      print('Location permission granted after request');
-      // Proceed with location-related functionality
+Future<void> requestLocationPermissions() async {
+  // Request 'locationWhenInUse' permission
+  var status = await Permission.locationWhenInUse.status;
+  if (!status.isGranted) {
+    status = await Permission.locationWhenInUse.request();
+    if (status.isGranted) {
+      // If 'locationWhenInUse' is granted, request 'locationAlways'
+      status = await Permission.locationAlways.request();
+      if (status.isGranted) {
+        // Permission granted
+      } else {
+        // Handle permission not granted
+      }
+    } else {
+      // Handle permission not granted
+    }
+  } else {
+    // 'locationWhenInUse' is already granted, request 'locationAlways'
+    status = await Permission.locationAlways.request();
+    if (status.isGranted) {
+      // Permission granted
+    } else {
+      // Handle permission not granted
     }
   }
 }
@@ -57,25 +68,6 @@ Future<void> checkLocationPermission() async {
 Future<Position> _determinePosition() async {
   bool serviceEnabled;
   LocationPermission permission;
-
-  permission = await Geolocator.checkPermission();
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied) {
-      // Permissions are denied, next time you could try
-      // requesting permissions again (this is also where
-      // Android's shouldShowRequestPermissionRationale
-      // returned true. According to Android guidelines
-      // your App should show an explanatory UI now.
-      return Future.error('Location permissions are denied');
-    }
-  }
-
-  if (permission == LocationPermission.deniedForever) {
-    // Permissions are denied forever, handle appropriately.
-    return Future.error(
-        'Location permissions are permanently denied, we cannot request permissions.');
-  }
 
   // continue accessing the position of the device.
   Position position = await Geolocator.getCurrentPosition();
@@ -131,11 +123,11 @@ Future<void> initializeService() async {
 
       // auto start service
       autoStart: true,
-      isForegroundMode: true,
+      isForegroundMode: false,
 
       notificationChannelId: 'my_foreground',
       initialNotificationTitle: 'INICIANDO SERVICIO DE POSIBLE CAÍDA',
-      initialNotificationContent: 'Initializing',
+      initialNotificationContent: 'Started',
       foregroundServiceNotificationId: 888,
     ),
     iosConfiguration: IosConfiguration(
@@ -199,6 +191,7 @@ void onStart(ServiceInstance service) async {
 
   // bring to foreground
   Timer.periodic(const Duration(seconds: 5), (timer) async {
+    print("value tic tac");
     await _determinePosition();
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -209,7 +202,7 @@ void onStart(ServiceInstance service) async {
       if (await service.isForegroundService()) {
         final value = currentAltitude! - prevAltitude!.abs();
         print("value $value");
-        if ((currentAltitude! - prevAltitude!).abs() > 10) {
+        if ((currentAltitude! - prevAltitude!).abs() > 1) {
           print("CALLED");
           flutterLocalNotificationsPlugin.show(
             888,
@@ -261,10 +254,19 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Service App'),
+          title: const Text(
+            'Detector de caídas',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.redAccent,
         ),
         body: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Lottie.asset(
+              "assets/falling.json",
+              fit: BoxFit.contain,
+            ),
             StreamBuilder<Map<String, dynamic>?>(
               stream: FlutterBackgroundService().on('update'),
               builder: (context, snapshot) {
@@ -286,7 +288,7 @@ class _MyAppState extends State<MyApp> {
                 );
               },
             ),
-            /* ElevatedButton(
+            ElevatedButton(
               child: const Text("Foreground Mode"),
               onPressed: () {
                 FlutterBackgroundService().invoke("setAsForeground");
@@ -297,7 +299,7 @@ class _MyAppState extends State<MyApp> {
               onPressed: () {
                 FlutterBackgroundService().invoke("setAsBackground");
               },
-            ), */
+            ),
             ElevatedButton(
               child: Text(text),
               onPressed: () async {
@@ -321,10 +323,6 @@ class _MyAppState extends State<MyApp> {
               child: LogView(),
             ), */
           ],
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {},
-          child: const Icon(Icons.play_arrow),
         ),
       ),
     );
